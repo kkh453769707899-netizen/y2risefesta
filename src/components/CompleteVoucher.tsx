@@ -113,11 +113,18 @@ export const CompleteVoucher: React.FC<CompleteVoucherProps> = ({
         {/* Voucher Body */}
         <div className="p-6 flex flex-col items-center text-center">
           {/* Participant Number Badge */}
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-neutral-900 text-white font-extrabold text-sm mb-4 shadow-sm">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-neutral-900 text-white font-extrabold text-sm mb-2 shadow-sm">
             <Award className="w-4 h-4 text-amber-400" />
             <span>참가자 #{participant.participantNumber}</span>
             <span className="text-[11px] text-neutral-400 font-mono">({participant.id})</span>
           </div>
+
+          {participant.name && (
+            <div className="text-xs font-black text-neutral-800 bg-amber-100/70 border border-amber-300/60 px-3 py-1 rounded-full mb-4">
+              참가자: {participant.name} ({participant.age ? `${participant.age}세` : ''}
+              {participant.gender ? `/${participant.gender === 'MALE' ? '남' : participant.gender === 'FEMALE' ? '여' : '기타'}` : ''})
+            </div>
+          )}
 
           {/* QR Code Container */}
           <div className="relative p-4 bg-white rounded-2xl border-2 border-neutral-900 shadow-md mb-3 group">

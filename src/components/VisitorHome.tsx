@@ -1,5 +1,5 @@
 import React from 'react';
-import { Camera, Gift, Sparkles, CheckCircle2, ChevronRight, Info } from 'lucide-react';
+import { Camera, Gift, Sparkles, CheckCircle2, ChevronRight, User, UserCheck } from 'lucide-react';
 import { Booth, FestivalSettings, Participant } from '../types';
 import { BoothCard } from './BoothCard';
 
@@ -11,6 +11,7 @@ interface VisitorHomeProps {
   onSelectBoothToScan: (booth: Booth) => void;
   onNavigateToComplete: () => void;
   onQuickSimulateScan: (booth: Booth) => void;
+  onOpenRegisterModal?: () => void;
 }
 
 export const VisitorHome: React.FC<VisitorHomeProps> = ({
@@ -21,6 +22,7 @@ export const VisitorHome: React.FC<VisitorHomeProps> = ({
   onSelectBoothToScan,
   onNavigateToComplete,
   onQuickSimulateScan,
+  onOpenRegisterModal,
 }) => {
   const activeBooths = booths.filter((b) => b.isActive);
   const totalActive = activeBooths.length;
@@ -63,32 +65,40 @@ export const VisitorHome: React.FC<VisitorHomeProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
-                <Info className="w-5 h-5" />
+                <UserCheck className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="text-sm font-bold text-neutral-900">
-                  부스를 방문하고 첫 QR을 스캔해보세요!
+                  참가자 정보를 등록하고 스탬프 투어를 시작해보세요!
                 </h3>
                 <p className="text-xs text-neutral-500">
-                  첫 번째 부스 QR 스캔 시 자동으로 참가자 번호가 발급됩니다.
+                  이름, 나이, 성별을 등록하면 참가자 번호가 발급되고 투어를 진행할 수 있습니다.
                 </p>
               </div>
             </div>
-            <button
-              onClick={onOpenScanner}
-              className="px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors self-start sm:self-auto shrink-0"
-            >
-              <Camera className="w-3.5 h-3.5 text-orange-400" />
-              <span>첫 스탬프 찍기</span>
-            </button>
+            {onOpenRegisterModal && (
+              <button
+                onClick={onOpenRegisterModal}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 transition-colors self-start sm:self-auto shrink-0 shadow-sm"
+              >
+                <User className="w-3.5 h-3.5 text-white" />
+                <span>참가자 등록하기</span>
+              </button>
+            )}
           </div>
         ) : (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="px-2.5 py-1 rounded-lg bg-neutral-900 text-white text-xs font-black">
                   참가자 #{participant.participantNumber}
                 </span>
+                {participant.name && (
+                  <span className="text-xs font-extrabold text-neutral-900 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                    {participant.name} ({participant.age ? `${participant.age}세` : ''}
+                    {participant.gender ? `/${participant.gender === 'MALE' ? '남' : participant.gender === 'FEMALE' ? '여' : '기타'}` : ''})
+                  </span>
+                )}
                 <span className="text-xs font-bold text-neutral-700">
                   {completedCount} / {totalActive} 부스 완료
                 </span>
@@ -139,48 +149,33 @@ export const VisitorHome: React.FC<VisitorHomeProps> = ({
         </div>
       </div>
 
-      {/* Booths Card Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {booths
-          .slice()
-          .sort((a, b) => a.order - b.order)
-          .map((booth) => {
-            const isCompleted = Boolean(participant?.completedBooths.includes(booth.id));
-            return (
-              <BoothCard
-                key={booth.id}
-                booth={booth}
-                isCompleted={isCompleted}
-                onScanThisBooth={() => onSelectBoothToScan(booth)}
-                onQuickSimulateScan={onQuickSimulateScan}
-              />
-            );
-          })}
+      {/* Booths Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+        {activeBooths.map((booth) => {
+          const isDone = participant?.completedBooths.includes(booth.id) || false;
+          return (
+            <BoothCard
+              key={booth.id}
+              booth={booth}
+              isCompleted={isDone}
+              onScanThisBooth={() => onSelectBoothToScan(booth)}
+              onQuickSimulateScan={() => onQuickSimulateScan(booth)}
+            />
+          );
+        })}
       </div>
 
-      {/* Floating Bottom Action Bar */}
-      <div className="fixed bottom-0 inset-x-0 z-20 p-4 bg-gradient-to-t from-white via-white/95 to-transparent pointer-events-none">
-        <div className="max-w-md mx-auto pointer-events-auto flex gap-2">
+      {/* Fixed bottom QR scan CTA */}
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-white via-white/95 to-transparent pointer-events-none z-20">
+        <div className="max-w-md mx-auto pointer-events-auto">
           <button
-            id="floating-qr-scan-btn"
+            id="bottom-scan-qr-btn"
             onClick={onOpenScanner}
-            className="flex-1 py-4 px-6 rounded-2xl bg-neutral-900 hover:bg-neutral-800 text-white font-extrabold text-sm shadow-xl shadow-neutral-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 border border-neutral-700"
+            className="w-full py-3.5 px-4 rounded-2xl bg-neutral-900 hover:bg-neutral-800 text-white font-extrabold text-sm shadow-xl flex items-center justify-center gap-2 transition-all transform active:scale-98"
           >
-            <Camera className="w-5 h-5 text-orange-400 animate-pulse" />
-            <span>📷 부스 QR 스캔하기</span>
+            <Camera className="w-4 h-4 text-orange-400" />
+            <span>현장 부스 QR 스탬프 찍기</span>
           </button>
-
-          {isAllCompleted && (
-            <button
-              id="floating-voucher-btn"
-              onClick={onNavigateToComplete}
-              className="py-4 px-5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-black text-sm shadow-xl shadow-orange-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-              title="간식 교환권 열기"
-            >
-              <Gift className="w-5 h-5 text-yellow-200" />
-              <span className="hidden sm:inline">간식 교환권</span>
-            </button>
-          )}
         </div>
       </div>
     </div>

@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Booth, FestivalSettings, Participant, ActivityLog } from './types';
+import { Booth, FestivalSettings, Participant, ActivityLog, GenderType } from './types';
 import { store } from './services/store';
 import { Header } from './components/Header';
 import { VisitorHome } from './components/VisitorHome';
@@ -14,6 +14,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { StaffSnackScannerModal } from './components/StaffSnackScannerModal';
 import { TestHelperModal } from './components/TestHelperModal';
+import { ParticipantRegisterModal } from './components/ParticipantRegisterModal';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'home' | 'complete' | 'admin'>('home');
@@ -29,13 +30,15 @@ export default function App() {
   const [isAdminAuth, setIsAdminAuth] = useState(false);
   const [isStaffScannerOpen, setIsStaffScannerOpen] = useState(false);
   const [isTestHelperOpen, setIsTestHelperOpen] = useState(false);
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
 
-  // Check URL routes for /admin or #admin
+  // Check URL routes for /admin or #admin & subscriptions
   useEffect(() => {
     const unsubBooths = store.subscribeBooths((b) => setBooths(b));
     const unsubParticipants = store.subscribeParticipants((p) => {
       setParticipants(p);
-      setMyParticipant(store.getLocalParticipant());
+      const local = store.getLocalParticipant();
+      setMyParticipant(local);
     });
     const unsubSettings = store.subscribeSettings((s) => setSettings(s));
     const unsubLogs = store.subscribeLogs((l) => setLogs(l));
@@ -63,6 +66,13 @@ export default function App() {
     checkRoute();
     window.addEventListener('hashchange', checkRoute);
     window.addEventListener('popstate', checkRoute);
+
+    // Initial check for visitor registration popup:
+    // If not in admin mode and user is not registered yet, show register modal
+    const localPart = store.getLocalParticipant();
+    if (!localPart && !window.location.pathname.endsWith('/admin') && window.location.hash !== '#admin') {
+      setIsRegisterModalOpen(true);
+    }
 
     return () => {
       unsubBooths();
@@ -97,6 +107,7 @@ export default function App() {
   const handleAdminLoginSuccess = () => {
     setIsAdminAuth(true);
     setIsAdminLoginOpen(false);
+    setIsRegisterModalOpen(false);
     window.location.hash = '#admin';
     setCurrentView('admin');
   };
@@ -110,14 +121,35 @@ export default function App() {
     }
   };
 
+  // Participant Registration Submission
+  const handleRegisterParticipant = (data: { name: string; age: number; gender: GenderType }) => {
+    const newParticipant = store.registerParticipant(data);
+    setMyParticipant(newParticipant);
+    setIsRegisterModalOpen(false);
+  };
+
   // QR Processing
   const handleScanResult = (rawCode: string) => {
+    // If participant is not registered yet, open registration modal first
+    if (!store.getLocalParticipant()) {
+      setIsRegisterModalOpen(true);
+      return {
+        success: false,
+        message: '먼저 참가자 등록(이름, 나이, 성별)을 완료해주세요.',
+      };
+    }
+
     const result = store.processBoothScan(rawCode);
     setMyParticipant(store.getLocalParticipant());
     return result;
   };
 
   const handleQuickSimulateScan = (booth: Booth) => {
+    if (!store.getLocalParticipant()) {
+      setIsRegisterModalOpen(true);
+      return;
+    }
+
     const code = store.generateBoothCode
       ? store.generateBoothCode(booth)
       : `BOOTH:${booth.id}:${booth.qrSecret}`;
@@ -141,7 +173,13 @@ export default function App() {
           isAdmin={isAdminAuth}
           onOpenAdmin={handleOpenAdmin}
           onOpenQuickTest={() => setIsTestHelperOpen(true)}
-          onOpenScanner={() => setIsScannerOpen(true)}
+          onOpenScanner={() => {
+            if (!myParticipant) {
+              setIsRegisterModalOpen(true);
+            } else {
+              setIsScannerOpen(true);
+            }
+          }}
         />
       )}
 
@@ -152,13 +190,26 @@ export default function App() {
             booths={booths}
             participant={myParticipant}
             settings={settings}
-            onOpenScanner={() => setIsScannerOpen(true)}
-            onSelectBoothToScan={() => setIsScannerOpen(true)}
+            onOpenScanner={() => {
+              if (!myParticipant) {
+                setIsRegisterModalOpen(true);
+              } else {
+                setIsScannerOpen(true);
+              }
+            }}
+            onSelectBoothToScan={() => {
+              if (!myParticipant) {
+                setIsRegisterModalOpen(true);
+              } else {
+                setIsScannerOpen(true);
+              }
+            }}
             onNavigateToComplete={() => {
               setCurrentView('complete');
               window.location.hash = '#complete';
             }}
             onQuickSimulateScan={handleQuickSimulateScan}
+            onOpenRegisterModal={() => setIsRegisterModalOpen(true)}
           />
         )}
 
@@ -193,6 +244,13 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Participant Registration Modal upon initial visit */}
+      <ParticipantRegisterModal
+        isOpen={isRegisterModalOpen}
+        festivalTitle={settings.title}
+        onRegister={handleRegisterParticipant}
+      />
 
       {/* QR Scanner Modal */}
       <QRScannerModal

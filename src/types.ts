@@ -11,9 +11,14 @@ export interface Booth {
   completedCount: number;
 }
 
+export type GenderType = 'MALE' | 'FEMALE' | 'OTHER';
+
 export interface Participant {
   id: string; // e.g. 'participant_1'
   participantNumber: number; // e.g. 1
+  name?: string; // 참가자 이름
+  age?: number; // 참가자 나이
+  gender?: GenderType; // 참가자 성별
   createdAt: number;
   completedBooths: string[];
   progress: number; // 0 ~ 100
@@ -43,7 +48,7 @@ export interface ActivityLog {
   participantNumber: number;
   boothId?: string;
   boothName?: string;
-  type: 'BOOTH_STAMP' | 'COMPLETED_ALL' | 'SNACK_CLAIMED';
+  type: 'BOOTH_STAMP' | 'COMPLETED_ALL' | 'SNACK_CLAIMED' | 'PARTICIPANT_REGISTERED';
   message: string;
 }
 

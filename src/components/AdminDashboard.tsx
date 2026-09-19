@@ -151,6 +151,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const matchesSearch =
       searchQuery.trim() === '' ||
       p.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.name && p.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
       String(p.participantNumber).includes(searchQuery.trim());
 
     if (!matchesSearch) return false;
@@ -589,6 +590,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <thead className="bg-neutral-900 text-neutral-400 font-bold border-b border-neutral-800">
                     <tr>
                       <th className="p-3.5">참가자 번호</th>
+                      <th className="p-3.5">이름 / 나이 / 성별</th>
                       <th className="p-3.5">고유 ID</th>
                       <th className="p-3.5">완료 부스 현황</th>
                       <th className="p-3.5">진행률</th>
@@ -599,7 +601,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <tbody className="divide-y divide-neutral-800/60">
                     {filteredParticipants.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="p-8 text-center text-neutral-500">
+                        <td colSpan={7} className="p-8 text-center text-neutral-500">
                           검색 조건에 일치하는 참가자가 없습니다.
                         </td>
                       </tr>
@@ -610,6 +612,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <span className="px-2.5 py-1 rounded-md bg-neutral-800 text-amber-300 font-black">
                               #{p.participantNumber}
                             </span>
+                          </td>
+                          <td className="p-3.5">
+                            {p.name ? (
+                              <div>
+                                <span className="font-extrabold text-white text-xs">{p.name}</span>
+                                <div className="text-[11px] text-neutral-400">
+                                  {p.age ? `${p.age}세` : '-'} / {p.gender === 'MALE' ? '남성' : p.gender === 'FEMALE' ? '여성' : '기타'}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-neutral-500 italic">미입력</span>
+                            )}
                           </td>
                           <td className="p-3.5 font-mono text-neutral-400">{p.id}</td>
                           <td className="p-3.5">

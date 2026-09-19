@@ -282,6 +282,68 @@ class FestivalDataStore {
     return this.participants.find((p) => p.id === localId) || null;
   }
 
+  /**
+   * Register a new participant upon initial site entry with Name, Age, Gender
+   * and allocate next participant number and save to Firestore
+   */
+  public registerParticipant(data: { name: string; age: number; gender: import('../types').GenderType }): Participant {
+    const existing = this.getLocalParticipant();
+    if (existing) {
+      existing.name = data.name;
+      existing.age = data.age;
+      existing.gender = data.gender;
+      this.saveToStorage();
+      this.notifyAll();
+      setDoc(doc(db, 'participants', existing.id), existing, { merge: true }).catch(() => {});
+      return existing;
+    }
+
+    const nextNum = (this.counters.lastParticipantNumber || 0) + 1;
+    this.counters.lastParticipantNumber = nextNum;
+
+    const newId = `participant_${nextNum}`;
+    const newParticipant: Participant = {
+      id: newId,
+      participantNumber: nextNum,
+      name: data.name,
+      age: data.age,
+      gender: data.gender,
+      createdAt: Date.now(),
+      completedBooths: [],
+      progress: 0,
+      isCompleted: false,
+      completedAt: null,
+      snackClaimed: false,
+      snackClaimedAt: null,
+      lastActiveAt: Date.now(),
+    };
+
+    this.participants.unshift(newParticipant);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEYS.LOCAL_PARTICIPANT_ID, newId);
+      localStorage.setItem(STORAGE_KEYS.LOCAL_PARTICIPANT_ALLOCATED, 'true');
+    }
+
+    this.addLog({
+      id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: Date.now(),
+      participantId: newParticipant.id,
+      participantNumber: newParticipant.participantNumber,
+      type: 'PARTICIPANT_REGISTERED',
+      message: `새로운 참가자 #${newParticipant.participantNumber} [${newParticipant.name} (${newParticipant.age}세/${newParticipant.gender === 'MALE' ? '남' : '여'})]님이 등록되었습니다! 🎈`,
+    });
+
+    this.saveToStorage();
+    this.notifyAll();
+
+    // Persist counter & new participant to Firestore
+    setDoc(doc(db, 'settings', 'config'), { lastParticipantNumber: nextNum }, { merge: true }).catch(() => {});
+    setDoc(doc(db, 'participants', newId), newParticipant).catch(() => {});
+
+    return newParticipant;
+  }
+
   // --- QR Code Helpers ---
   public generateBoothCode(booth: Booth): string {
     return `BOOTH:${booth.id}:${booth.qrSecret}`;
