@@ -48,17 +48,23 @@ export default function App() {
       const isAuth = sessionStorage.getItem('kfc_admin_auth') === 'true';
       setIsAdminAuth(isAuth);
 
-      const path = window.location.pathname;
-      const hash = window.location.hash;
+      const path = window.location.pathname.toLowerCase().replace(/\/+$/, '');
+      const hash = window.location.hash.toLowerCase();
 
-      if (path.endsWith('/admin') || hash === '#admin') {
+      const isAdminRoute =
+        path === '/admin' ||
+        path.endsWith('/admin') ||
+        hash === '#admin' ||
+        hash === '#/admin';
+
+      if (isAdminRoute) {
         if (isAuth) {
           setCurrentView('admin');
         } else {
           setCurrentView('home');
           setIsAdminLoginOpen(true);
         }
-      } else if (path.endsWith('/complete') || hash === '#complete') {
+      } else if (path.endsWith('/complete') || hash === '#complete' || hash === '#/complete') {
         setCurrentView('complete');
       }
     };
@@ -70,7 +76,10 @@ export default function App() {
     // Initial check for visitor registration popup:
     // If not in admin mode and user is not registered yet, show register modal
     const localPart = store.getLocalParticipant();
-    if (!localPart && !window.location.pathname.endsWith('/admin') && window.location.hash !== '#admin') {
+    const isCurrentAdminPath =
+      window.location.pathname.toLowerCase().includes('/admin') ||
+      window.location.hash.toLowerCase().includes('admin');
+    if (!localPart && !isCurrentAdminPath) {
       setIsRegisterModalOpen(true);
     }
 
@@ -114,9 +123,10 @@ export default function App() {
 
   const handleBackToVisitor = () => {
     setCurrentView('home');
-    if (window.location.pathname.endsWith('/admin')) {
+    if (window.location.pathname.toLowerCase().includes('/admin')) {
       window.history.pushState(null, '', '/');
-    } else {
+    }
+    if (window.location.hash.toLowerCase().includes('admin')) {
       window.location.hash = '';
     }
   };
@@ -269,8 +279,11 @@ export default function App() {
         isOpen={isAdminLoginOpen}
         onClose={() => {
           setIsAdminLoginOpen(false);
-          if (window.location.pathname.endsWith('/admin')) {
+          if (window.location.pathname.toLowerCase().includes('/admin')) {
             window.history.pushState(null, '', '/');
+          }
+          if (window.location.hash.toLowerCase().includes('admin')) {
+            window.location.hash = '';
           }
         }}
         correctPassword={settings.adminPassword}
