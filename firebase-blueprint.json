@@ -1,0 +1,62 @@
+{
+  "entities": {
+    "Booth": {
+      "collection": "booths",
+      "description": "Festival activity booths with location and verification QR tokens",
+      "fields": {
+        "id": { "type": "string", "description": "Unique booth identifier" },
+        "name": { "type": "string", "description": "Booth name" },
+        "category": { "type": "string", "description": "Booth category" },
+        "location": { "type": "string", "description": "Booth physical location" },
+        "description": { "type": "string", "description": "Booth description" },
+        "hint": { "type": "string", "description": "Location hint for QR code" },
+        "qrSecret": { "type": "string", "description": "Security token for QR validation" },
+        "order": { "type": "number", "description": "Display and tour order" },
+        "isActive": { "type": "boolean", "description": "Whether booth is actively operating" },
+        "completedCount": { "type": "number", "description": "Total completions count" }
+      }
+    },
+    "Participant": {
+      "collection": "participants",
+      "description": "Festival participants allocated upon their first valid booth scan",
+      "fields": {
+        "id": { "type": "string", "description": "Participant unique ID (participant_X)" },
+        "participantNumber": { "type": "number", "description": "Sequential participant number" },
+        "completedBooths": { "type": "array", "description": "Array of completed booth IDs" },
+        "progress": { "type": "number", "description": "Completion percentage (0-100)" },
+        "isCompleted": { "type": "boolean", "description": "Whether all active booths are completed" },
+        "completedAt": { "type": "number", "description": "Timestamp when finished all booths" },
+        "snackClaimed": { "type": "boolean", "description": "Whether completion snack voucher has been redeemed" },
+        "snackClaimedAt": { "type": "number", "description": "Timestamp when snack was redeemed" },
+        "createdAt": { "type": "number", "description": "Timestamp of participant registration" },
+        "lastActiveAt": { "type": "number", "description": "Timestamp of last scan activity" }
+      }
+    },
+    "Settings": {
+      "collection": "settings",
+      "description": "Global festival settings and atomic counters",
+      "fields": {
+        "title": { "type": "string", "description": "Festival title" },
+        "welcomeMessage": { "type": "string", "description": "Welcome banner message" },
+        "snackName": { "type": "string", "description": "Gift snack name" },
+        "snackBoothLocation": { "type": "string", "description": "Snack distribution location" },
+        "adminPassword": { "type": "string", "description": "Admin access password" },
+        "lastParticipantNumber": { "type": "number", "description": "Atomic counter for participant numbers" }
+      }
+    },
+    "ActivityLog": {
+      "collection": "logs",
+      "description": "Real-time activity logs for festival feed",
+      "fields": {
+        "id": { "type": "string", "description": "Log ID" },
+        "timestamp": { "type": "number", "description": "Log creation timestamp" },
+        "participantId": { "type": "string", "description": "Participant ID" },
+        "participantNumber": { "type": "number", "description": "Participant sequential number" },
+        "boothId": { "type": "string", "description": "Booth ID if applicable" },
+        "boothName": { "type": "string", "description": "Booth name if applicable" },
+        "type": { "type": "string", "description": "Log event type" },
+        "message": { "type": "string", "description": "Log message" }
+      }
+    }
+  }
+}

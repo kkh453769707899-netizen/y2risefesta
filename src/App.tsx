@@ -30,7 +30,7 @@ export default function App() {
   const [isStaffScannerOpen, setIsStaffScannerOpen] = useState(false);
   const [isTestHelperOpen, setIsTestHelperOpen] = useState(false);
 
-  // Subscribe to real-time store changes
+  // Check URL routes for /admin or #admin
   useEffect(() => {
     const unsubBooths = store.subscribeBooths((b) => setBooths(b));
     const unsubParticipants = store.subscribeParticipants((p) => {
@@ -40,26 +40,37 @@ export default function App() {
     const unsubSettings = store.subscribeSettings((s) => setSettings(s));
     const unsubLogs = store.subscribeLogs((l) => setLogs(l));
 
-    // Check session admin auth
-    if (typeof window !== 'undefined') {
+    const checkRoute = () => {
+      if (typeof window === 'undefined') return;
       const isAuth = sessionStorage.getItem('kfc_admin_auth') === 'true';
       setIsAdminAuth(isAuth);
 
-      // Simple hash sync if directly navigated to #admin or #complete
+      const path = window.location.pathname;
       const hash = window.location.hash;
-      if (hash === '#admin') {
-        if (isAuth) setCurrentView('admin');
-        else setIsAdminLoginOpen(true);
-      } else if (hash === '#complete') {
+
+      if (path.endsWith('/admin') || hash === '#admin') {
+        if (isAuth) {
+          setCurrentView('admin');
+        } else {
+          setCurrentView('home');
+          setIsAdminLoginOpen(true);
+        }
+      } else if (path.endsWith('/complete') || hash === '#complete') {
         setCurrentView('complete');
       }
-    }
+    };
+
+    checkRoute();
+    window.addEventListener('hashchange', checkRoute);
+    window.addEventListener('popstate', checkRoute);
 
     return () => {
       unsubBooths();
       unsubParticipants();
       unsubSettings();
       unsubLogs();
+      window.removeEventListener('hashchange', checkRoute);
+      window.removeEventListener('popstate', checkRoute);
     };
   }, []);
 
@@ -68,7 +79,6 @@ export default function App() {
     const current = store.getLocalParticipant();
     setMyParticipant(current);
 
-    // If viewing complete view but participant isn't completed, fallback to home
     if (currentView === 'complete' && (!current || !current.isCompleted)) {
       setCurrentView('home');
     }
@@ -87,13 +97,17 @@ export default function App() {
   const handleAdminLoginSuccess = () => {
     setIsAdminAuth(true);
     setIsAdminLoginOpen(false);
-    setCurrentView('admin');
     window.location.hash = '#admin';
+    setCurrentView('admin');
   };
 
   const handleBackToVisitor = () => {
     setCurrentView('home');
-    window.location.hash = '';
+    if (window.location.pathname.endsWith('/admin')) {
+      window.history.pushState(null, '', '/');
+    } else {
+      window.location.hash = '';
+    }
   };
 
   // QR Processing
@@ -152,8 +166,11 @@ export default function App() {
           <CompleteVoucher
             participant={myParticipant}
             settings={settings}
-            onBackToStampBook={handleBackToVisitor}
-            onStaffClaimSnack={(id) => store.claimSnack(id)}
+            onBackToStampBook={() => {
+              setCurrentView('home');
+              window.location.hash = '';
+            }}
+            onStaffClaimSnack={(pId) => store.claimSnack(pId)}
           />
         )}
 
@@ -164,12 +181,12 @@ export default function App() {
             settings={settings}
             logs={logs}
             onBackToVisitorView={handleBackToVisitor}
-            onAddBooth={(newB) => store.addBooth(newB)}
-            onUpdateBooth={(id, updates) => store.updateBooth(id, updates)}
+            onAddBooth={(b) => store.addBooth(b)}
+            onUpdateBooth={(id, u) => store.updateBooth(id, u)}
             onDeleteBooth={(id) => store.deleteBooth(id)}
             onToggleBoothActive={(id) => store.toggleBoothActive(id)}
-            onUpdateSettings={(newS) => store.updateSettings(newS)}
-            onClaimSnack={(id) => store.claimSnack(id)}
+            onUpdateSettings={(s) => store.updateSettings(s)}
+            onClaimSnack={(pId) => store.claimSnack(pId)}
             onResetAllData={() => store.resetAllParticipantsAndStats()}
             onRestoreDefaultBooths={() => store.restoreDefaultBooths()}
             onOpenStaffSnackScanner={() => setIsStaffScannerOpen(true)}
@@ -189,10 +206,15 @@ export default function App() {
         }}
       />
 
-      {/* Admin Password Login Modal */}
+      {/* Admin ID / PW Login Modal (ID: 수련관, PW: 9826) */}
       <AdminLoginModal
         isOpen={isAdminLoginOpen}
-        onClose={() => setIsAdminLoginOpen(false)}
+        onClose={() => {
+          setIsAdminLoginOpen(false);
+          if (window.location.pathname.endsWith('/admin')) {
+            window.history.pushState(null, '', '/');
+          }
+        }}
         correctPassword={settings.adminPassword}
         onSuccess={handleAdminLoginSuccess}
       />
@@ -212,15 +234,7 @@ export default function App() {
         onClose={() => setIsTestHelperOpen(false)}
         booths={booths}
         participant={myParticipant}
-        onSimulateScan={(code) => {
-          const res = store.processBoothScan(code);
-          setMyParticipant(store.getLocalParticipant());
-          if (res.success) {
-            alert(res.message);
-          } else {
-            alert(res.message);
-          }
-        }}
+        onSimulateScan={(code) => handleScanResult(code)}
         onResetMyParticipant={() => store.resetMyParticipant()}
       />
     </div>

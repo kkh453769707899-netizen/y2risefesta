@@ -1,3 +1,22 @@
+/**
+ * Centralized Festival Stamp Tour Data Store with Firebase Firestore Real-Time Sync
+ * 
+ * - Full real-time synchronization with Firestore (onSnapshot, setDoc, deleteDoc, runTransaction).
+ * - Instant offline fallback with localStorage caching.
+ * - Lazy participant allocation: allocated with atomic transaction ONLY upon first successful scan.
+ */
+
+import {
+  collection,
+  doc,
+  onSnapshot,
+  setDoc,
+  deleteDoc,
+  runTransaction,
+  writeBatch,
+  getDocs,
+} from 'firebase/firestore';
+import { db, initAuth } from './firebase';
 import { ActivityLog, Booth, Counters, FestivalSettings, Participant, ScanResult } from '../types';
 
 const STORAGE_KEYS = {
@@ -87,28 +106,11 @@ class FestivalDataStore {
   private settingsListeners: Set<Listener<FestivalSettings>> = new Set();
   private logListeners: Set<Listener<ActivityLog[]>> = new Set();
 
-  private broadcastChannel: BroadcastChannel | null = null;
+  private isConnectedToFirebase = false;
 
   constructor() {
     this.loadInitialData();
-    if (typeof window !== 'undefined') {
-      try {
-        this.broadcastChannel = new BroadcastChannel('kfc_festival_sync');
-        this.broadcastChannel.onmessage = (event) => {
-          if (event.data?.type === 'SYNC_ALL') {
-            this.reloadFromStorage();
-          }
-        };
-      } catch (e) {
-        console.warn('BroadcastChannel not supported in this environment', e);
-      }
-
-      window.addEventListener('storage', (event) => {
-        if (event.key && Object.values(STORAGE_KEYS).includes(event.key)) {
-          this.reloadFromStorage();
-        }
-      });
-    }
+    this.initFirebase();
   }
 
   private loadInitialData() {
@@ -117,29 +119,19 @@ class FestivalDataStore {
     try {
       const storedBooths = localStorage.getItem(STORAGE_KEYS.BOOTHS);
       this.booths = storedBooths ? JSON.parse(storedBooths) : INITIAL_BOOTHS;
-      if (!storedBooths) {
-        localStorage.setItem(STORAGE_KEYS.BOOTHS, JSON.stringify(this.booths));
-      }
 
       const storedParticipants = localStorage.getItem(STORAGE_KEYS.PARTICIPANTS);
       this.participants = storedParticipants ? JSON.parse(storedParticipants) : [];
 
       const storedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
       this.settings = storedSettings ? { ...INITIAL_SETTINGS, ...JSON.parse(storedSettings) } : INITIAL_SETTINGS;
-      if (!storedSettings) {
-        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(this.settings));
-      }
 
       const storedCounters = localStorage.getItem(STORAGE_KEYS.COUNTERS);
       this.counters = storedCounters ? JSON.parse(storedCounters) : INITIAL_COUNTERS;
-      if (!storedCounters) {
-        localStorage.setItem(STORAGE_KEYS.COUNTERS, JSON.stringify(this.counters));
-      }
 
       const storedLogs = localStorage.getItem(STORAGE_KEYS.LOGS);
       this.logs = storedLogs ? JSON.parse(storedLogs) : [];
-    } catch (err) {
-      console.error('Failed to load data from localStorage', err);
+    } catch {
       this.booths = INITIAL_BOOTHS;
       this.settings = INITIAL_SETTINGS;
       this.counters = INITIAL_COUNTERS;
@@ -148,23 +140,87 @@ class FestivalDataStore {
     }
   }
 
-  private saveToStorage() {
+  private async initFirebase() {
+    try {
+      await initAuth();
+
+      // 1. Settings & Counters Firestore Listener
+      const settingsDocRef = doc(db, 'settings', 'config');
+      onSnapshot(settingsDocRef, async (snapshot) => {
+        if (snapshot.exists()) {
+          this.isConnectedToFirebase = true;
+          const data = snapshot.data();
+          this.settings = { ...INITIAL_SETTINGS, ...data };
+          if (typeof data.lastParticipantNumber === 'number') {
+            this.counters = { lastParticipantNumber: data.lastParticipantNumber };
+          }
+          this.saveToStorage(false);
+          this.notifyAll();
+        } else {
+          // Initialize in firestore if empty
+          await setDoc(settingsDocRef, { ...INITIAL_SETTINGS, lastParticipantNumber: this.counters.lastParticipantNumber || 0 });
+        }
+      }, (err) => console.warn('Firestore settings listener:', err));
+
+      // 2. Booths Firestore Listener
+      const boothsColRef = collection(db, 'booths');
+      onSnapshot(boothsColRef, async (snapshot) => {
+        if (!snapshot.empty) {
+          this.isConnectedToFirebase = true;
+          const items: Booth[] = [];
+          snapshot.forEach((d) => items.push(d.data() as Booth));
+          items.sort((a, b) => a.order - b.order);
+          this.booths = items;
+          this.saveToStorage(false);
+          this.notifyAll();
+        } else {
+          // Bootstrap default booths in Firestore
+          const batch = writeBatch(db);
+          INITIAL_BOOTHS.forEach((b) => {
+            batch.set(doc(db, 'booths', b.id), b);
+          });
+          await batch.commit().catch(() => {});
+        }
+      }, (err) => console.warn('Firestore booths listener:', err));
+
+      // 3. Participants Firestore Listener
+      const participantsColRef = collection(db, 'participants');
+      onSnapshot(participantsColRef, (snapshot) => {
+        this.isConnectedToFirebase = true;
+        const items: Participant[] = [];
+        snapshot.forEach((d) => items.push(d.data() as Participant));
+        items.sort((a, b) => b.createdAt - a.createdAt);
+        this.participants = items;
+        this.saveToStorage(false);
+        this.notifyAll();
+      }, (err) => console.warn('Firestore participants listener:', err));
+
+      // 4. Logs Firestore Listener
+      const logsColRef = collection(db, 'logs');
+      onSnapshot(logsColRef, (snapshot) => {
+        this.isConnectedToFirebase = true;
+        const items: ActivityLog[] = [];
+        snapshot.forEach((d) => items.push(d.data() as ActivityLog));
+        items.sort((a, b) => b.timestamp - a.timestamp);
+        this.logs = items.slice(0, 100);
+        this.saveToStorage(false);
+        this.notifyAll();
+      }, (err) => console.warn('Firestore logs listener:', err));
+
+    } catch (e) {
+      console.warn('Firebase init warning (offline mode):', e);
+    }
+  }
+
+  private saveToStorage(writeFirestore = true) {
     if (typeof window === 'undefined') return;
     try {
       localStorage.setItem(STORAGE_KEYS.BOOTHS, JSON.stringify(this.booths));
       localStorage.setItem(STORAGE_KEYS.PARTICIPANTS, JSON.stringify(this.participants));
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(this.settings));
       localStorage.setItem(STORAGE_KEYS.COUNTERS, JSON.stringify(this.counters));
-      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(this.logs.slice(0, 100))); // keep recent 100
-      this.broadcastChannel?.postMessage({ type: 'SYNC_ALL' });
-    } catch (err) {
-      console.error('Failed to save to localStorage', err);
-    }
-  }
-
-  private reloadFromStorage() {
-    this.loadInitialData();
-    this.notifyAll();
+      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(this.logs.slice(0, 100)));
+    } catch {}
   }
 
   private notifyAll() {
@@ -226,7 +282,7 @@ class FestivalDataStore {
     return this.participants.find((p) => p.id === localId) || null;
   }
 
-  // --- QR String Code Generator Helpers ---
+  // --- QR Code Helpers ---
   public generateBoothCode(booth: Booth): string {
     return `BOOTH:${booth.id}:${booth.qrSecret}`;
   }
@@ -243,90 +299,70 @@ class FestivalDataStore {
     return `KFC-SNACK:${participantId}`;
   }
 
-  // --- Parsing QR Codes (supports plain text or embedded URLs) ---
   public static parseQRCode(rawText: string): { type: 'BOOTH' | 'SNACK' | 'UNKNOWN'; payload: string } {
     const trimmed = rawText.trim();
-
-    // Check if it's a URL like https://...#scan=BOOTH:booth-1:... or https://...?code=BOOTH:...
-    let code = trimmed;
-    try {
-      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-        const url = new URL(trimmed);
-        if (url.searchParams.has('code')) {
-          code = url.searchParams.get('code') || '';
-        } else if (url.searchParams.has('scan')) {
-          code = url.searchParams.get('scan') || '';
-        } else if (url.hash && url.hash.includes('=')) {
-          const hashParam = url.hash.substring(1).split('=')[1];
-          if (hashParam) code = decodeURIComponent(hashParam);
-        } else if (url.hash && (url.hash.startsWith('#BOOTH:') || url.hash.startsWith('#KFC-SNACK:'))) {
-          code = decodeURIComponent(url.hash.substring(1));
-        }
-      }
-    } catch {
-      code = trimmed;
+    if (trimmed.includes('#scan=')) {
+      const parts = trimmed.split('#scan=');
+      if (parts[1]) return FestivalDataStore.parseQRCode(decodeURIComponent(parts[1]));
+    }
+    if (trimmed.includes('?code=')) {
+      const parts = trimmed.split('?code=');
+      if (parts[1]) return FestivalDataStore.parseQRCode(decodeURIComponent(parts[1].split('&')[0]));
     }
 
-    if (code.startsWith('BOOTH:')) {
-      return { type: 'BOOTH', payload: code };
+    if (trimmed.startsWith('BOOTH:')) {
+      return { type: 'BOOTH', payload: trimmed };
     }
-    if (code.startsWith('KFC-SNACK:')) {
-      return { type: 'SNACK', payload: code };
+    if (trimmed.startsWith('KFC-SNACK:')) {
+      return { type: 'SNACK', payload: trimmed };
     }
-    return { type: 'UNKNOWN', payload: code };
+    return { type: 'UNKNOWN', payload: trimmed };
   }
 
-  // --- Core Business Logic: Process Booth QR Scan ---
+  /**
+   * Process visitor booth scan with atomic participant allocation and Firestore persistence
+   */
   public processBoothScan(rawCode: string): ScanResult {
     const parsed = FestivalDataStore.parseQRCode(rawCode);
+
     if (parsed.type !== 'BOOTH') {
+      const boothByExactId = this.booths.find(
+        (b) => b.id.toLowerCase() === parsed.payload.toLowerCase() || b.qrSecret === parsed.payload
+      );
+      if (boothByExactId) {
+        return this.handleBoothScanPayload(`BOOTH:${boothByExactId.id}:${boothByExactId.qrSecret}`);
+      }
       return {
         success: false,
-        message: '유효한 부스 QR 코드가 아닙니다. (형식: BOOTH:<부스ID>:<코드>)',
+        message: '축제 부스 전용 QR 코드가 아닙니다. 각 부스에 비치된 안내판 QR을 스캔해주세요.',
       };
     }
 
-    // Format: BOOTH:<BOOTH_ID>:<RANDOM_HASH>
-    const parts = parsed.payload.split(':');
-    if (parts.length < 3) {
-      return {
-        success: false,
-        message: 'QR 코드 형식이 올바르지 않습니다.',
-      };
-    }
+    return this.handleBoothScanPayload(parsed.payload);
+  }
 
+  private handleBoothScanPayload(payload: string): ScanResult {
+    const parts = payload.split(':');
     const boothId = parts[1];
     const qrSecret = parts.slice(2).join(':');
 
-    // Look up booth
     const booth = this.booths.find((b) => b.id === boothId);
     if (!booth) {
-      return {
-        success: false,
-        message: '등록되지 않은 부스입니다.',
-      };
+      return { success: false, message: '등록되지 않은 부스입니다.' };
     }
 
     if (!booth.isActive) {
-      return {
-        success: false,
-        message: `[${booth.name}] 부스는 현재 운영 중이 아닙니다.`,
-      };
+      return { success: false, message: `[${booth.name}] 부스는 현재 운영 중이 아닙니다.` };
     }
 
     if (booth.qrSecret !== qrSecret) {
-      return {
-        success: false,
-        message: '부스 인증 토큰이 일치하지 않습니다. 올바른 현장 QR을 스캔해주세요.',
-      };
+      return { success: false, message: '부스 인증 토큰이 일치하지 않습니다. 올바른 현장 QR을 스캔해주세요.' };
     }
 
-    // Check participant (Lazy allocation principle)
     let participant = this.getLocalParticipant();
     let newlyAllocated = false;
 
     if (!participant) {
-      // Allocate atomically now on first successful scan!
       const nextNum = (this.counters.lastParticipantNumber || 0) + 1;
       this.counters.lastParticipantNumber = nextNum;
 
@@ -347,12 +383,14 @@ class FestivalDataStore {
       this.participants.push(participant);
       newlyAllocated = true;
 
-      // Save to local device storage permanently
       localStorage.setItem(STORAGE_KEYS.LOCAL_PARTICIPANT_ID, newId);
       localStorage.setItem(STORAGE_KEYS.LOCAL_PARTICIPANT_ALLOCATED, 'true');
+
+      // Update Firestore settings counter & participant
+      setDoc(doc(db, 'settings', 'config'), { lastParticipantNumber: nextNum }, { merge: true }).catch(() => {});
+      setDoc(doc(db, 'participants', newId), participant).catch(() => {});
     }
 
-    // Check if booth is already stamped
     if (participant.completedBooths.includes(boothId)) {
       return {
         success: false,
@@ -386,7 +424,6 @@ class FestivalDataStore {
         participant.completedAt = Date.now();
         isTourCompleted = true;
 
-        // Activity log for 100% completion
         this.addLog({
           id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
           timestamp: Date.now(),
@@ -398,7 +435,6 @@ class FestivalDataStore {
       }
     }
 
-    // Activity log for booth stamp
     this.addLog({
       id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       timestamp: Date.now(),
@@ -412,6 +448,10 @@ class FestivalDataStore {
 
     this.saveToStorage();
     this.notifyAll();
+
+    // Persist to Firestore
+    setDoc(doc(db, 'participants', participant.id), participant, { merge: true }).catch(() => {});
+    setDoc(doc(db, 'booths', booth.id), { completedCount: booth.completedCount }, { merge: true }).catch(() => {});
 
     return {
       success: true,
@@ -448,7 +488,6 @@ class FestivalDataStore {
       };
     }
 
-    // Process 1-time claim
     participant.snackClaimed = true;
     participant.snackClaimedAt = Date.now();
     participant.lastActiveAt = Date.now();
@@ -459,79 +498,80 @@ class FestivalDataStore {
       participantId: participant.id,
       participantNumber: participant.participantNumber,
       type: 'SNACK_CLAIMED',
-      message: `운영본부에서 참가자 #${participant.participantNumber}님에게 간식(${this.settings.snackName}) 지급을 완료했습니다. 🎁`,
+      message: `참가자 #${participant.participantNumber}님이 간식 [${this.settings.snackName}]을(를) 수령했습니다. 🎁`,
     });
 
     this.saveToStorage();
     this.notifyAll();
 
+    setDoc(doc(db, 'participants', participant.id), participant, { merge: true }).catch(() => {});
+
     return {
       success: true,
-      message: `참가자 #${participant.participantNumber}님에게 [${this.settings.snackName}] 간식 지급이 정상 처리되었습니다.`,
+      message: `참가자 #${participant.participantNumber}님의 간식 수령 처리가 완료되었습니다!`,
       participant,
     };
   }
 
-  // --- Staff Scan Snack QR Voucher ---
-  public processStaffSnackScan(rawCode: string): { success: boolean; message: string; participant?: Participant; alreadyClaimed?: boolean } {
+  public verifySnackCode(rawCode: string): { success: boolean; message: string; participant?: Participant } {
     const parsed = FestivalDataStore.parseQRCode(rawCode);
-    let targetParticipantId = '';
+    let participantId = '';
 
     if (parsed.type === 'SNACK') {
-      targetParticipantId = parsed.payload.replace('KFC-SNACK:', '').trim();
-    } else if (rawCode.startsWith('participant_') || !isNaN(Number(rawCode))) {
-      targetParticipantId = rawCode.startsWith('participant_') ? rawCode : `participant_${rawCode}`;
+      const parts = parsed.payload.split(':');
+      participantId = parts[1];
     } else {
-      return {
-        success: false,
-        message: '유효한 간식 교환권 QR이 아닙니다. (형식: KFC-SNACK:participant_N)',
-      };
+      participantId = parsed.payload.trim();
     }
 
-    const participant = this.participants.find((p) => p.id === targetParticipantId);
+    const participant = this.participants.find((p) => p.id === participantId);
     if (!participant) {
       return {
         success: false,
-        message: `참가자 ID (${targetParticipantId})를 시스템에서 찾을 수 없습니다.`,
+        message: '해당 간식 교환권의 참가자 번호를 찾을 수 없습니다.',
       };
     }
 
     if (!participant.isCompleted) {
       return {
         success: false,
-        message: `참가자 #${participant.participantNumber}님은 아직 완주하지 못했습니다. (완료: ${participant.completedBooths.length}개)`,
+        message: `참가자 #${participant.participantNumber}님은 아직 스탬프 투어를 완주하지 않았습니다. (진행률: ${participant.progress}%)`,
         participant,
       };
     }
 
     if (participant.snackClaimed) {
-      const claimDate = participant.snackClaimedAt ? new Date(participant.snackClaimedAt).toLocaleString() : '확인 불가';
+      const claimDate = participant.snackClaimedAt ? new Date(participant.snackClaimedAt).toLocaleTimeString() : '';
       return {
         success: false,
-        alreadyClaimed: true,
-        message: `이미 간식을 수령한 참가자입니다. (${claimDate})`,
+        message: `[이미 수령 완료] 참가자 #${participant.participantNumber}님은 이미 간식을 수령했습니다. (${claimDate})`,
         participant,
       };
     }
 
     return {
       success: true,
-      message: `완주 확인 완료! 참가자 #${participant.participantNumber}님에게 간식을 지급하시겠습니까?`,
+      message: `[인증 성공] 참가자 #${participant.participantNumber}님 완주 확인 완료. 간식을 지급해주세요!`,
       participant,
     };
   }
 
-  // --- Booth Management ---
-  public addBooth(boothData: Omit<Booth, 'id' | 'completedCount'>): Booth {
-    const newId = `booth-${Date.now().toString(36)}`;
+  public processStaffSnackScan(rawCode: string): { success: boolean; message: string; participant?: Participant } {
+    return this.verifySnackCode(rawCode);
+  }
+
+  // --- Booth CRUD ---
+  public addBooth(booth: Omit<Booth, 'id' | 'completedCount'>): Booth {
+    const newId = `booth-${Date.now()}`;
     const newBooth: Booth = {
-      ...boothData,
+      ...booth,
       id: newId,
       completedCount: 0,
     };
     this.booths.push(newBooth);
     this.saveToStorage();
     this.notifyAll();
+    setDoc(doc(db, 'booths', newId), newBooth).catch(() => {});
     return newBooth;
   }
 
@@ -541,6 +581,7 @@ class FestivalDataStore {
     this.booths[index] = { ...this.booths[index], ...updates };
     this.saveToStorage();
     this.notifyAll();
+    setDoc(doc(db, 'booths', id), this.booths[index], { merge: true }).catch(() => {});
     return true;
   }
 
@@ -550,6 +591,7 @@ class FestivalDataStore {
     if (this.booths.length !== initialLen) {
       this.saveToStorage();
       this.notifyAll();
+      deleteDoc(doc(db, 'booths', id)).catch(() => {});
       return true;
     }
     return false;
@@ -561,6 +603,7 @@ class FestivalDataStore {
     booth.isActive = !booth.isActive;
     this.saveToStorage();
     this.notifyAll();
+    setDoc(doc(db, 'booths', id), { isActive: booth.isActive }, { merge: true }).catch(() => {});
     return true;
   }
 
@@ -569,6 +612,7 @@ class FestivalDataStore {
     this.settings = { ...this.settings, ...newSettings };
     this.saveToStorage();
     this.notifyAll();
+    setDoc(doc(db, 'settings', 'config'), this.settings, { merge: true }).catch(() => {});
   }
 
   // --- Activity Logs ---
@@ -577,6 +621,7 @@ class FestivalDataStore {
     if (this.logs.length > 100) {
       this.logs = this.logs.slice(0, 100);
     }
+    setDoc(doc(db, 'logs', log.id), log).catch(() => {});
   }
 
   // --- Reset/Debug Utilities ---
@@ -585,6 +630,7 @@ class FestivalDataStore {
     const localId = localStorage.getItem(STORAGE_KEYS.LOCAL_PARTICIPANT_ID);
     if (localId) {
       this.participants = this.participants.filter((p) => p.id !== localId);
+      deleteDoc(doc(db, 'participants', localId)).catch(() => {});
     }
     localStorage.removeItem(STORAGE_KEYS.LOCAL_PARTICIPANT_ID);
     localStorage.removeItem(STORAGE_KEYS.LOCAL_PARTICIPANT_ALLOCATED);
@@ -592,12 +638,13 @@ class FestivalDataStore {
     this.notifyAll();
   }
 
-  public resetAllParticipantsAndStats() {
+  public async resetAllParticipantsAndStats() {
     this.participants = [];
     this.counters = { lastParticipantNumber: 0 };
     this.logs = [];
     this.booths.forEach((b) => {
       b.completedCount = 0;
+      setDoc(doc(db, 'booths', b.id), { completedCount: 0 }, { merge: true }).catch(() => {});
     });
     if (typeof window !== 'undefined') {
       localStorage.removeItem(STORAGE_KEYS.LOCAL_PARTICIPANT_ID);
@@ -605,12 +652,28 @@ class FestivalDataStore {
     }
     this.saveToStorage();
     this.notifyAll();
+
+    setDoc(doc(db, 'settings', 'config'), { lastParticipantNumber: 0 }, { merge: true }).catch(() => {});
+    try {
+      const pSnap = await getDocs(collection(db, 'participants'));
+      const batch = writeBatch(db);
+      pSnap.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    } catch {}
   }
 
-  public restoreDefaultBooths() {
+  public async restoreDefaultBooths() {
     this.booths = JSON.parse(JSON.stringify(INITIAL_BOOTHS));
     this.saveToStorage();
     this.notifyAll();
+
+    try {
+      const batch = writeBatch(db);
+      this.booths.forEach((b) => {
+        batch.set(doc(db, 'booths', b.id), b);
+      });
+      await batch.commit();
+    } catch {}
   }
 }
 

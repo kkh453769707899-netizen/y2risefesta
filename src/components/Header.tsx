@@ -67,19 +67,18 @@ export const Header: React.FC<HeaderProps> = ({
             <Sparkles className="w-4 h-4" />
           </button>
 
-          <button
-            id="header-admin-btn"
-            onClick={onOpenAdmin}
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 border ${
-              isAdmin
-                ? 'bg-neutral-900 text-white border-neutral-900 shadow-xs'
-                : 'bg-white hover:bg-neutral-50 text-neutral-700 border-neutral-200'
-            }`}
-            title="관리자 / 운영진 대시보드"
-          >
-            <Shield className={`w-3.5 h-3.5 ${isAdmin ? 'text-amber-400' : 'text-neutral-500'}`} />
-            <span className="hidden sm:inline">{isAdmin ? '운영진 모드' : '관리자'}</span>
-          </button>
+          {/* Admin button shown ONLY when already authenticated */}
+          {isAdmin && (
+            <button
+              id="header-admin-btn"
+              onClick={onOpenAdmin}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 border bg-neutral-900 text-white border-neutral-900 shadow-xs"
+              title="관리자 / 운영진 대시보드"
+            >
+              <Shield className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">운영진 모드</span>
+            </button>
+          )}
         </div>
       </div>
     </header>

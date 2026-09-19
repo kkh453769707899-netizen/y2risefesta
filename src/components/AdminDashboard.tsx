@@ -208,6 +208,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>참가자 화면</span>
             </button>
+
+            <button
+              onClick={() => {
+                sessionStorage.removeItem('kfc_admin_auth');
+                window.location.hash = '';
+                onBackToVisitorView();
+              }}
+              className="px-2.5 py-1.5 rounded-xl bg-neutral-800 hover:bg-red-950 text-neutral-400 hover:text-red-300 text-xs font-semibold transition-colors flex items-center gap-1 border border-neutral-700"
+              title="관리자 로그아웃"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">로그아웃</span>
+            </button>
           </div>
         </div>
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, X, Shield, ArrowRight } from 'lucide-react';
+import { Lock, X, Shield, ArrowRight, User } from 'lucide-react';
 
 interface AdminLoginModalProps {
   isOpen: boolean;
@@ -11,9 +11,9 @@ interface AdminLoginModalProps {
 export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   isOpen,
   onClose,
-  correctPassword,
   onSuccess,
 }) => {
+  const [adminId, setAdminId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
 
@@ -21,9 +21,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === correctPassword || password === 'admin1234') {
+    // ID: 수련관, PW: 9826 (외부 유출/공유되지 않도록 내부 고정)
+    if (adminId.trim() === '수련관' && password.trim() === '9826') {
       sessionStorage.setItem('kfc_admin_auth', 'true');
       setError(false);
+      setAdminId('');
       setPassword('');
       onSuccess();
     } else {
@@ -32,7 +34,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-neutral-950/80 backdrop-blur-sm p-4 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-neutral-950/85 backdrop-blur-sm p-4 flex items-center justify-center">
       <div className="relative w-full max-w-sm bg-neutral-900 rounded-3xl border border-neutral-800 shadow-2xl p-6 text-neutral-100 animate-in zoom-in-95">
         <button
           onClick={onClose}
@@ -45,40 +47,60 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
           <Shield className="w-6 h-6" />
         </div>
 
-        <h3 className="text-base font-extrabold text-white mb-1">운영진 인증</h3>
+        <h3 className="text-base font-extrabold text-white mb-1">운영진 전용 로그인</h3>
         <p className="text-xs text-neutral-400 mb-5">
-          축제 관리자 대시보드 접근을 위해 비밀번호를 입력해주세요. (기본: admin1234)
+          축제 운영진 계정 아이디와 비밀번호를 입력해주세요.
         </p>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3.5">
           <div>
+            <label className="block text-[11px] font-bold text-neutral-300 mb-1">관리자 아이디</label>
+            <div className="relative">
+              <User className="w-4 h-4 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                required
+                autoFocus
+                value={adminId}
+                onChange={(e) => {
+                  setAdminId(e.target.value);
+                  setError(false);
+                }}
+                placeholder="아이디 입력"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-800 text-xs text-white placeholder-neutral-500 focus:outline-hidden focus:border-amber-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-neutral-300 mb-1">비밀번호</label>
             <div className="relative">
               <Lock className="w-4 h-4 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="password"
                 required
-                autoFocus
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
                   setError(false);
                 }}
-                placeholder="관리자 비밀번호"
+                placeholder="비밀번호 입력"
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-800 text-xs text-white placeholder-neutral-500 focus:outline-hidden focus:border-amber-500"
               />
             </div>
-            {error && (
-              <p className="mt-1.5 text-xs text-red-400 font-medium">
-                비밀번호가 일치하지 않습니다. 다시 입력해주세요.
-              </p>
-            )}
           </div>
+
+          {error && (
+            <p className="text-xs text-red-400 font-medium">
+              아이디 또는 비밀번호가 일치하지 않습니다.
+            </p>
+          )}
 
           <button
             type="submit"
-            className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-extrabold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+            className="w-full mt-2 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-extrabold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-sm"
           >
-            <span>대시보드 접속</span>
+            <span>운영 대시보드 로그인</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </form>
